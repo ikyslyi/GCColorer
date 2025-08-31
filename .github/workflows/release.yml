@@ -124,7 +124,7 @@ jobs:
             GCColorer-*.zip
             GCColorer-*.tar.gz
           if-no-files-found: ignore
-
+  
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
@@ -139,13 +139,54 @@ jobs:
         with:
           path: ./dist
 
-      - name: Generate release notes
-        id: notes
+      - name: Prepare release notes from CHANGELOG
+        id: changelog
+        env:
+          TAG_NAME: ${{ github.ref_name }}   # e.g. v0.1.0
         run: |
-          echo "## Binaries" > RELEASE_NOTES.md
-          echo "" >> RELEASE_NOTES.md
-          echo "Self-contained, single-file binaries:" >> RELEASE_NOTES.md
-          ls -R ./dist >> RELEASE_NOTES.md || true
+          set -euo pipefail
+          VER="${TAG_NAME#v}"                # -> 0.1.0
+          OUT="RELEASE_NOTES.md"
+  
+          if [[ ! -f CHANGELOG.md ]]; then
+            echo "CHANGELOG.md not found. Generating minimal notes."
+            {
+              echo "## GCColorer ${VER}"
+              echo
+              echo "Release ${TAG_NAME}."
+            } > "$OUT"
+            exit 0
+          fi
+  
+          # Try to extract section matching either:
+          #   ## [0.1.0] - YYYY-MM-DD
+          #   ## [0.1.0]
+          #   ## 0.1.0
+          awk -v ver="$VER" '
+            BEGIN {found=0}
+            # Start when header matches the version (with or without [ ])
+            $0 ~ "^##[[:space:]]*\\[" ver "\\]" || $0 ~ "^##[[:space:]]*" ver {
+              found=1; print; next
+            }
+            # Stop at next header once we have started
+            found && $0 ~ "^##[[:space:]]" { exit }
+            # While in the block, keep printing
+            found { print }
+          ' CHANGELOG.md > "$OUT"
+  
+          # Fallback if nothing extracted (empty file)
+          if [[ ! -s "$OUT" ]]; then
+            echo "Section for ${VER} not found. Generating minimal notes."
+            {
+              echo "## GCColorer ${VER}"
+              echo
+              echo "Release ${TAG_NAME}."
+            } > "$OUT"
+          fi
+  
+          echo "Release notes prepared:"
+          echo "-----------------------"
+          cat "$OUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
