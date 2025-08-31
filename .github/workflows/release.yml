@@ -1,0 +1,158 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'   # Trigger on version tags like v1.2.3
+
+jobs:
+  publish:
+    name: Build & Package
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        runtime: [ win-x64, linux-x64, osx-arm64 ] # add osx-x64 if needed
+      fail-fast: false
+
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+      CONFIGURATION: Release
+      PROJECT_PATH: ./src/GCColorer.csproj
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nuget/packages
+            ~/.local/share/NuGet/Cache
+            ~/.nuget/plugins-cache
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/packages.lock.json') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Prepare paths
+        run: |
+          IOP="$(mktemp -d "${RUNNER_TEMP}/obj-${{ matrix.runtime }}-XXXXXX")"
+          echo "IOP=$IOP" >> "$GITHUB_ENV"
+          echo "OUTDIR=artifacts/${{ matrix.runtime }}" >> "$GITHUB_ENV"
+
+      # Restore per runtime (keeps packages cacheable, recomputes assets for RID)
+      - name: Restore (per-runtime, force evaluate, same IOP)
+        run: |
+          dotnet restore "$PROJECT_PATH" \
+            -r "${{ matrix.runtime }}" \
+            --force-evaluate \
+            -p:BaseIntermediateOutputPath="$IOP/" \
+            -p:IntermediateOutputPath="$IOP/obj/"
+
+      - name: Publish (single-file, self-contained)
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}   # e.g. v0.1.0
+        run: |
+          set -euo pipefail
+          VER="${RELEASE_TAG#v}"               # -> 0.1.0 (valid SemVer)
+
+          # Decide single-file per runtime (disable on Windows)
+          SINGLEFILE=true
+          if [[ "${{ matrix.runtime }}" == win-* ]]; then SINGLEFILE=false; fi
+
+          # safety: clean with the same IOP to avoid stale locks
+          dotnet clean "$PROJECT_PATH" -c "$CONFIGURATION" -r "${{ matrix.runtime }}" \
+            -p:BaseIntermediateOutputPath="$IOP/" -p:IntermediateOutputPath="$IOP/obj/" || true
+
+          mkdir -p "$OUTDIR" "$IOP"
+
+          # Publishing parameters:
+          # - self-contained: true   -> does not require installed .NET
+          # - PublishSingleFile: true -> single executable file
+          # - PublishTrimmed: true   -> trimming (be careful with reflection; we are fine)
+          # - Deterministic: true    -> deterministic build
+          # - Version: $VER          -> embed version from tag
+
+          dotnet publish "$PROJECT_PATH" \
+            -c "$CONFIGURATION" \
+            -r "${{ matrix.runtime }}" \
+            --no-restore \
+            -m:1 \
+            -p:RestoreLockedMode=false \
+            -p:BaseIntermediateOutputPath="$IOP/" \
+            -p:IntermediateOutputPath="$IOP/obj/" \
+            -p:SelfContained=true \
+            -p:PublishSingleFile=$SINGLEFILE \
+            -p:PublishTrimmed=true \
+            -p:Deterministic=true \
+            -p:Version="$VER" \
+            --output "$OUTDIR"
+
+          # The name of the executable file varies by OS
+          APPNAME="GCColorer"
+          EXE="$OUTDIR/$APPNAME"
+          if [[ "${{ matrix.runtime }}" == win-* ]]; then
+            EXE="$OUTDIR/$APPNAME.exe"
+          fi
+
+          # Make sure the file is executable (for *nix)
+          chmod +x "$EXE" || true
+
+          # Package into an archive with version and runtime
+          ARCHIVE="GCColorer-${VER}-${{ matrix.runtime }}"
+          if [[ "${{ matrix.runtime }}" == win-* ]]; then
+            7z a "${ARCHIVE}.zip" "$EXE" "$OUTDIR/appsettings.json" 2>/dev/null || zip -j "${ARCHIVE}.zip" "$EXE" "$OUTDIR/appsettings.json"
+          else
+            tar -czf "${ARCHIVE}.tar.gz" -C "$OUTDIR" "$(basename "$EXE")" appsettings.json || tar -czf "${ARCHIVE}.tar.gz" -C "$OUTDIR" "$(basename "$EXE")"
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ matrix.runtime }}-artifacts"
+          path: |
+            GCColorer-*.zip
+            GCColorer-*.tar.gz
+          if-no-files-found: ignore
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: publish
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./dist
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          echo "## Binaries" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "Self-contained, single-file binaries:" >> RELEASE_NOTES.md
+          ls -R ./dist >> RELEASE_NOTES.md || true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**/GCColorer-*.zip
+            dist/**/GCColorer-*.tar.gz
+          body_path: RELEASE_NOTES.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

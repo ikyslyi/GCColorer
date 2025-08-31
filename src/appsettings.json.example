@@ -1,0 +1,24 @@
+{
+    "Google": {
+      "ClientId": "YOUR_GOOGLE_OAUTH_CLIENT_ID",
+      "ClientSecret": "YOUR_GOOGLE_OAUTH_CLIENT_SECRET",
+      "CalendarId": "primary",
+      "TimeZone": "Europe/Warsaw"
+    },
+    "ColorRules": [
+      { "MatchType": "equals",   "Pattern": "Main job",     "ColorId": "8" },
+      { "MatchType": "equals",   "Pattern": "Sport",        "ColorId": "6" },
+      { "MatchType": "equals",   "Pattern": "Family Time",  "ColorId": "5" },
+      { "MatchType": "contains", "Pattern": "Meeting",      "ColorId": "9" },
+      { "MatchType": "contains", "Pattern": "Pet-project",  "ColorId": "7" },
+      { "MatchType": "equals",   "Pattern": "Lunch",        "ColorId": "2" }
+    ],
+    "DeleteRules": [
+      { "MatchType": "equals", "Pattern": "Main job" },
+      { "MatchType": "equals", "Pattern": "Sport" },
+      { "MatchType": "equals", "Pattern": "Family Time" },
+      { "MatchType": "contains", "Pattern": "Meeting" },
+      { "MatchType": "contains", "Pattern": "Pet-project" },
+      { "MatchType": "equals", "Pattern": "Lunch" }
+    ]
+}

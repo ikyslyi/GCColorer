@@ -1,0 +1,20 @@
+<Project>
+    <PropertyGroup>
+        <!-- Turn on CPM -->
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+
+        <!-- .NET build hygiene -->
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+
+        <!-- Deterministic builds -->
+        <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+        <Deterministic>true</Deterministic>
+
+        <!-- NuGet lock files for deterministic restore -->
+        <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+        <!-- When adding/updating packages locally, do restore with a flag to make nuget rebuild the lock file -->
+        <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+    </PropertyGroup>
+</Project>
